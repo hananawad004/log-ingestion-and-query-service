@@ -1,0 +1,37 @@
+{
+  "name": "log-ingestion-and-query-service",
+  "version": "1.0.0",
+  "description": "A high-throughput log ingestion, query, and retention service backed by PostgreSQL",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hananawad004/log-ingestion-and-query-service.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/hananawad004/log-ingestion-and-query-service/issues"
+  },
+  "homepage": "https://github.com/hananawad004/log-ingestion-and-query-service#readme",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "fastify": "^5.11.2",
+    "pg": "^8.22.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.2",
+    "@types/pg": "^8.20.4",
+    "tsx": "^4.23.8",
+    "typescript": "^7.0.2"
+  }
+}
