@@ -1,0 +1,103 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Run unit tests
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+  smoke-test:
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Create .env for docker-compose
+        run: |
+          echo "POSTGRES_USER=loguser" >> .env
+          echo "POSTGRES_PASSWORD=logpass" >> .env
+          echo "POSTGRES_DB=logs" >> .env
+
+      - name: Start services
+        run: docker compose up -d --build
+
+      - name: Wait for /health to return 200
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:8080/health; then
+              echo "Service is healthy"
+              exit 0
+            fi
+            echo "Waiting for service... ($i/30)"
+            sleep 2
+          done
+          echo "Service did not become healthy in time"
+          docker compose logs
+          exit 1
+
+      - name: Smoke test - POST /logs (ingest)
+        run: |
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST http://localhost:8080/logs \
+            -H "Content-Type: application/json" \
+            -d "{\"logs\":[{\"timestamp\":\"$(date -u +%Y-%m-%dT%H:%M:%S.000Z)\",\"level\":\"info\",\"service\":\"ci-smoke-test\",\"message\":\"smoke test entry\"}]}")
+          STATUS=$(echo "$RESPONSE" | tail -n1)
+          BODY=$(echo "$RESPONSE" | sed '$d')
+          echo "Status: $STATUS, Body: $BODY"
+          if [ "$STATUS" != "200" ]; then
+            echo "POST /logs smoke test failed"
+            exit 1
+          fi
+
+      - name: Smoke test - GET /logs (query)
+        run: |
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:8080/logs?service=ci-smoke-test")
+          echo "Status: $STATUS"
+          if [ "$STATUS" != "200" ]; then
+            echo "GET /logs smoke test failed"
+            exit 1
+          fi
+
+      - name: Smoke test - GET /logs/aggregate
+        run: |
+          SINCE=$(date -u -d '1 hour ago' +%Y-%m-%dT%H:%M:%SZ)
+          UNTIL=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:8080/logs/aggregate?since=$SINCE&until=$UNTIL&bucket=1h")
+          echo "Status: $STATUS"
+          if [ "$STATUS" != "200" ]; then
+            echo "GET /logs/aggregate smoke test failed"
+            exit 1
+          fi
+
+      - name: Show logs on failure
+        if: failure()
+        run: docker compose logs
+
+      - name: Stop services
+        if: always()
+        run: docker compose down -v
