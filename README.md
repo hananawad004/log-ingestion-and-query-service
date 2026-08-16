@@ -4,14 +4,65 @@ A high-throughput log ingestion, query, and retention service backed by PostgreS
 
 ## Table of Contents
 
+- [Project Structure](#project-structure)
 - [Setup and Usage](#setup-and-usage)
 - [API Documentation](#api-documentation)
 - [Schema and Index Design](#schema-and-index-design)
 - [Attribute Storage Strategy](#attribute-storage-strategy)
 - [Retention Strategy](#retention-strategy)
 - [Optional Features](#optional-features)
+- [Testing](#testing)
+- [CI Pipeline](#ci-pipeline)
 - [Load-Test Methodology and Measured Performance](#load-test-methodology-and-measured-performance)
 - [Known Limitations](#known-limitations)
+
+---
+
+## Project Structure
+
+The application follows a layered architecture with a strict one-way dependency flow, so query-building and persistence logic stay separated from HTTP handlers:
+
+```
+src/
+├── index.ts              # Server bootstrap: run migrations → apply optional
+│                          # indexes → start retention scheduler → listen
+├── config.ts              # Central place that reads all environment variables
+├── db/
+│   ├── pool.ts             # Two connection pools: `pool` (writes) and
+│   │                        # `readPool` (reads) — see Load-Test section
+│   ├── migrate.ts          # Applies migrations/*.sql, tracked in
+│   │                        # schema_migrations, skips already-applied ones
+│   └── optionalIndexes.ts  # Creates/drops the optional message-search index
+│                            # based on ENABLE_MESSAGE_SEARCH_INDEX
+├── domain/
+│   ├── logEntry.ts         # Core types: LogLevel, Attributes, LogEntry
+│   └── errors.ts           # ValidationError, InvalidCursorError
+├── validation/
+│   └── logValidator.ts     # Per-entry validation rules, pure functions
+├── repositories/
+│   ├── logRepository.ts       # Bulk insert via unnest() — the only place
+│   │                            # that writes to the `logs` table
+│   └── partitionRepository.ts # Creates/drops monthly partitions
+├── services/
+│   ├── ingestService.ts    # Validates a batch, collects accepted/rejected
+│   ├── queryService.ts     # Builds dynamic, parameterized WHERE clauses
+│   │                        # for GET /logs + cursor pagination
+│   ├── aggregateService.ts # Time-bucketing + group_by for GET /logs/aggregate
+│   └── retentionService.ts # Scheduled partition maintenance
+├── http/
+│   ├── routes.ts           # Maps each endpoint to its handler
+│   └── handlers.ts         # Thin HTTP layer: parse request → call service
+│                            # → map result/errors to status codes
+└── utils/
+    └── cursor.ts            # base64url encode/decode for opaque pagination
+                              # cursors, with full round-trip validation
+
+migrations/          # SQL migrations, applied in order and tracked
+test/                # Unit tests (see Testing)
+loadtest/            # Load-testing and data-seeding scripts (see below)
+```
+
+**Why this structure:** HTTP handlers never contain SQL or business logic — they parse a request, call a service, and translate the result (or a thrown `ValidationError`/`InvalidCursorError`) into an HTTP response. Services never talk to Fastify. Repositories are the only files that contain raw SQL. This mirrors the "Separation of concerns" requirement in the project spec and made it straightforward to add features (e.g. the optional message-search index, the dedicated read pool) without touching unrelated layers.
 
 ---
 
@@ -175,13 +226,53 @@ When disabled, `q=` filtering still works correctly — it just performs a seque
 
 ---
 
+## Testing
+
+Unit tests use Node's built-in test runner (`node:test`) via `tsx` — no extra test framework dependency.
+
+```bash
+npm test
+```
+
+**`test/logValidator.test.ts`** — 14 tests covering the full set of per-entry validation rules and edge cases:
+- Valid entry accepted end-to-end
+- Missing/invalid timestamp (including the exact 5-minutes-in-the-future boundary, both just inside and just outside it)
+- Invalid `level` value
+- Empty `service` / `message` strings
+- Missing `attributes` (optional field, defaults to `{}`)
+- `attributes` containing a nested object, an array, or a `null` value (all rejected per spec)
+- Non-object and array top-level input
+
+**`test/cursor.test.ts`** — 7 tests covering cursor encode/decode:
+- Round-trip encode → decode returns the original value
+- Encoded output contains no `+`, `/`, or `=` characters (URL-safe)
+- Garbage base64, valid-base64-but-not-JSON, JSON missing `id`, JSON with a non-numeric `id`, and JSON with an invalid timestamp string are all rejected with `InvalidCursorError`
+
+**Additional manual/integration verification** (documented here since they exercise the running system end-to-end rather than being automated unit tests): partial batch rejection, all-entries-rejected → 400, every `GET /logs` filter individually and in combination, `until <= since` → 400, malformed cursor → 400, empty result sets returning `next_cursor: null` rather than an error, and required-field validation on `GET /logs/aggregate` (`since`/`until`/`bucket` all required, unlike on `GET /logs`).
+
+---
+
+## CI Pipeline
+
+`.github/workflows/ci.yml` runs on every push and pull request to `main`, in two jobs:
+
+1. **`build-and-test`** — installs dependencies, type-checks (`tsc --noEmit`), runs the unit test suite, and builds the TypeScript output. Fails fast on any type or test error before the (slower) Docker-based job runs.
+2. **`smoke-test`** (runs only if the first job passes) — brings up the full stack with `docker compose up --build`, polls `/health` until it returns 200, then exercises all three data endpoints (`POST /logs`, `GET /logs`, `GET /logs/aggregate`) against the running containers and fails the build if any of them doesn't return the expected status code. Container logs are printed automatically on failure for debugging, and the stack is always torn down afterward.
+
+This directly covers the required-contract smoke test described in the spec for the `AUTH_ENABLED=false` (default) configuration.
+
+---
+
 ## Load-Test Methodology and Measured Performance
 
 ### Test environment
 - Docker Desktop on Windows, WSL2 (Ubuntu 24.04)
 - Application container: 0.5 CPU / 256MB RAM (enforced via `docker-compose.yml`)
 - PostgreSQL container: 1 CPU / 1GB RAM (enforced via `docker-compose.yml`)
-- Load generation: custom scripts (`loadtest/ingest.ts`, `loadtest/concurrent.ts`, `loadtest/seed.ts`) built on `autocannon`
+- Load generation: custom scripts built on `autocannon`:
+    - `loadtest/ingest.ts` — pure ingestion throughput test (configurable `BATCH_SIZE`, `CONNECTIONS`, `DURATION_SEC`)
+    - `loadtest/concurrent.ts` — runs ingestion and one `GET /logs/aggregate` request per second concurrently, measuring both sides
+    - `loadtest/seed.ts` — bulk-seeds a configurable number of rows (`SEED_ROWS`, default 1,000,000) directly via `unnest()`, with timestamps spread across a 30-day window, for realistic performance testing
 - Dataset: 1,000,000 rows seeded with `timestamp`s spread randomly across a 30-day window, matching the "~1 month of data" assumption in the spec
 
 ### Methodology note
