@@ -45,9 +45,12 @@ CREATE INDEX IF NOT EXISTS idx_logs_level ON logs (level);
 -- Attribute containment lookups.
 CREATE INDEX IF NOT EXISTS idx_logs_attributes_gin ON logs USING GIN (attributes jsonb_path_ops);
 
--- Accelerates q= substring search (ILIKE '%term%'), which a plain B-tree
--- index cannot help with at all.
-CREATE INDEX IF NOT EXISTS idx_logs_message_trgm ON logs USING GIN (message gin_trgm_ops);
+-- NOTE: A pg_trgm GIN index on `message` was benchmarked and removed from
+-- the default schema. It accelerated q= substring search but cost ~35%
+-- of write throughput under load (measured: ~10.7K -> ~16.1K logs/sec
+-- after removal, p95 latency ~511ms -> ~264ms). Since it is optional
+-- and off by default (see ENABLE_MESSAGE_SEARCH_INDEX), it is created
+-- programmatically at startup instead of here. See README.
 
 -- Bookkeeping table so the retention/partition-maintenance job knows which
 -- monthly partitions exist without querying pg_catalog every run.

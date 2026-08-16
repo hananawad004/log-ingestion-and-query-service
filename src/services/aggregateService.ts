@@ -1,4 +1,4 @@
-import { pool } from "../db/pool.js";
+import { readPool } from "../db/pool.js";
 import { ValidationError } from "../domain/errors.js";
 import { LOG_LEVELS } from "../domain/logEntry.js";
 
@@ -106,7 +106,7 @@ export async function aggregateLogs(params: AggregateParams): Promise<AggregateR
     ORDER BY bucket_start ASC
   `;
 
-    const { rows } = await pool.query(sql, values);
+    const { rows } = await readPool.query(sql, values);
 
     const buckets: AggregateBucket[] = rows.map((row) => ({
         start: new Date(row.bucket_start).toISOString(),

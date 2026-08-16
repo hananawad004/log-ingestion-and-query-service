@@ -21,4 +21,5 @@ export const config = {
 
     defaultQueryLimit: 100,
     maxQueryLimit: 1000,
+    enableMessageSearchIndex: (process.env.ENABLE_MESSAGE_SEARCH_INDEX ?? "false").toLowerCase() === "true",
 };

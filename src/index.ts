@@ -4,15 +4,19 @@ import { registerRoutes } from "./http/routes.js";
 import { runMigrations } from "./db/migrate.js";
 import { pool } from "./db/pool.js";
 import { startRetentionScheduler } from "./services/retentionService.js";
+import {applyOptionalIndexes} from "./db/optionalIndexes.js";
 
 async function main() {
     console.log("Running database migrations...");
     await runMigrations();
     console.log("Migrations complete.");
 
+    await applyOptionalIndexes();
     const retentionTimer = startRetentionScheduler();
 
-    const app = Fastify({ logger: true });
+    const app = Fastify({
+        logger: process.env.NODE_ENV === "production" ? { level: "warn" } : true,
+    });
     await registerRoutes(app);
 
     await app.listen({ port: config.port, host: config.host });

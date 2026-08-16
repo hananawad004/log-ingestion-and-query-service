@@ -1,4 +1,4 @@
-import { pool } from "../db/pool.js";
+import { readPool } from "../db/pool.js";
 import { decodeCursor, encodeCursor } from "../utils/cursor.js";
 import { ValidationError } from "../domain/errors.js";
 import type { LogLevel } from "../domain/logEntry.js";
@@ -104,7 +104,7 @@ export async function queryLogs(params: QueryLogsParams): Promise<QueryLogsResul
     LIMIT ${limit + 1}
   `;
 
-    const { rows } = await pool.query(sql, values);
+    const { rows } = await readPool.query(sql, values);
 
     const hasMore = rows.length > limit;
     const pageRows = hasMore ? rows.slice(0, limit) : rows;
