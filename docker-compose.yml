@@ -2,9 +2,9 @@ services:
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER:-loguser}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-logpass}
+      POSTGRES_DB: ${POSTGRES_DB:-logs}
     ports:
       - "5433:5432"
     volumes:
@@ -38,9 +38,9 @@ services:
       PORT: 8080
       PGHOST: postgres
       PGPORT: 5432
-      PGUSER: ${POSTGRES_USER}
-      PGPASSWORD: ${POSTGRES_PASSWORD}
-      PGDATABASE: ${POSTGRES_DB}
+      PGUSER: ${POSTGRES_USER:-loguser}
+      PGPASSWORD: ${POSTGRES_PASSWORD:-logpass}
+      PGDATABASE: ${POSTGRES_DB:-logs}
 
     ports:
       - "8080:8080"
