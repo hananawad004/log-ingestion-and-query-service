@@ -101,7 +101,7 @@ function validateAttributes(
         if (!isAttributeValue(val)) {
             return { valid: false, reason: `attribute '${key}' must be a string, number, or boolean` };
         }
-        result[key] = val;
+        result[key] = String(val);
     }
 
     return { valid: true, value: result };

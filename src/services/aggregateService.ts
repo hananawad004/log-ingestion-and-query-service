@@ -82,7 +82,7 @@ export async function aggregateLogs(params: AggregateParams): Promise<AggregateR
 
     if (params.attrs) {
         for (const [key, value] of Object.entries(params.attrs)) {
-            addCondition(`attributes ->> '${key}' = ?`, value);
+            addCondition("attributes @> ?::jsonb", JSON.stringify({ [key]: value }));
         }
     }
 
