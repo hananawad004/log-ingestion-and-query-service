@@ -20,7 +20,7 @@ export const readPool = new pg.Pool({
     user: config.pg.user,
     password: config.pg.password,
     database: config.pg.database,
-    max: 2, // small dedicated pool for read queries
+    max: 6, // small dedicated pool for read queries
     idleTimeoutMillis: config.pg.idleTimeoutMillis,
     statement_timeout: config.pg.statementTimeoutMs,
 });
