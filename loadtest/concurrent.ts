@@ -1,6 +1,6 @@
 import autocannon from "autocannon";
 
-const BASE_URL = process.env.TARGET_BASE_URL ?? "http://localhost:8081";
+const BASE_URL = process.env.TARGET_BASE_URL ?? "http://localhost:8080";
 const BATCH_SIZE = Number(process.env.BATCH_SIZE ?? 1000);
 const DURATION_SEC = Number(process.env.DURATION_SEC ?? 20);
 const CONNECTIONS = Number(process.env.CONNECTIONS ?? 20);

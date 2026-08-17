@@ -1,6 +1,6 @@
 import autocannon from "autocannon";
 
-const TARGET_URL = process.env.TARGET_URL ?? "http://localhost:8081/logs";
+const TARGET_URL = process.env.TARGET_URL ?? "http://localhost:8080/logs";
 const BATCH_SIZE = Number(process.env.BATCH_SIZE ?? 100);
 const DURATION_SEC = Number(process.env.DURATION_SEC ?? 20);
 const CONNECTIONS = Number(process.env.CONNECTIONS ?? 20);
