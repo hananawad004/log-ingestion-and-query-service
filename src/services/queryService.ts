@@ -78,7 +78,8 @@ export async function queryLogs(params: QueryLogsParams): Promise<QueryLogsResul
 
     if (params.attrs) {
         for (const [key, value] of Object.entries(params.attrs)) {
-            addCondition("attributes @> ?::jsonb", JSON.stringify({ [key]: value }));
+            addCondition("attributes_str @> ?::jsonb", JSON.stringify({ [key]: value }));
+
         }
     }
 
