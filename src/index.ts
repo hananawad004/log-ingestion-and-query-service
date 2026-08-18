@@ -4,6 +4,7 @@ import { registerRoutes } from "./http/routes.js";
 import { runMigrations } from "./db/migrate.js";
 import { pool } from "./db/pool.js";
 import { startRetentionScheduler } from "./services/retentionService.js";
+import { startRollupFlushScheduler, flushRollupBuffer } from "./services/rollupBuffer.js";
 import {applyOptionalIndexes} from "./db/optionalIndexes.js";
 
 async function main() {
@@ -13,6 +14,7 @@ async function main() {
 
     await applyOptionalIndexes();
     const retentionTimer = startRetentionScheduler();
+    const rollupFlushTimer = startRollupFlushScheduler();
 
     const app = Fastify({
         logger: process.env.NODE_ENV === "production" ? { level: "warn" } : true,
@@ -25,6 +27,8 @@ async function main() {
     const shutdown = async () => {
         console.log("Shutting down...");
         clearInterval(retentionTimer);
+        clearInterval(rollupFlushTimer);
+        await flushRollupBuffer();
         await app.close();
         await pool.end();
         process.exit(0);

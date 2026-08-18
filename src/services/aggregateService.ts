@@ -54,6 +54,67 @@ export async function aggregateLogs(params: AggregateParams): Promise<AggregateR
         throw new ValidationError(`invalid group_by: '${params.group_by}' (must be service or level)`);
     }
 
+    if (params.level !== undefined && !(LOG_LEVELS as readonly string[]).includes(params.level)) {
+        throw new ValidationError(`invalid level: '${params.level}'`);
+    }
+
+    // The rollup table only tracks (minute, service, level) counts — it has
+    // no attribute or message data. Queries filtering on attr.* or q= can't
+    // be answered from it, so they fall back to scanning `logs` directly.
+    const canUseRollup = params.attrs === undefined && params.q === undefined;
+
+    return canUseRollup
+        ? aggregateFromRollup(params, bucketSeconds)
+        : aggregateFromRawLogs(params, bucketSeconds);
+}
+
+async function aggregateFromRollup(
+    params: AggregateParams,
+    bucketSeconds: number,
+): Promise<AggregateResult> {
+    const conditions: string[] = ["bucket_start >= $1", "bucket_start < $2"];
+    const values: unknown[] = [params.since, params.until];
+
+    if (params.service !== undefined) {
+        values.push(params.service);
+        conditions.push(`service = $${values.length}`);
+    }
+    if (params.level !== undefined) {
+        values.push(params.level);
+        conditions.push(`level = $${values.length}`);
+    }
+
+    const groupByColumn = params.group_by;
+    const groupExpr = groupByColumn ? groupByColumn : "NULL";
+
+    const bucketExpr = `to_timestamp(floor(extract(epoch from bucket_start) / ${bucketSeconds}) * ${bucketSeconds})`;
+
+    const sql = `
+    SELECT
+      ${bucketExpr} AS bucket_start,
+      ${groupExpr} AS group_value,
+      SUM(count)::int AS count
+    FROM logs_rollup_1m
+    WHERE ${conditions.join(" AND ")}
+    GROUP BY bucket_start, group_value
+    ORDER BY bucket_start ASC
+  `;
+
+    const { rows } = await readPool.query(sql, values);
+
+    return {
+        buckets: rows.map((row) => ({
+            start: new Date(row.bucket_start).toISOString(),
+            group: row.group_value,
+            count: row.count,
+        })),
+    };
+}
+
+async function aggregateFromRawLogs(
+    params: AggregateParams,
+    bucketSeconds: number,
+): Promise<AggregateResult> {
     const conditions: string[] = [];
     const values: unknown[] = [];
 
@@ -70,9 +131,6 @@ export async function aggregateLogs(params: AggregateParams): Promise<AggregateR
     }
 
     if (params.level !== undefined) {
-        if (!(LOG_LEVELS as readonly string[]).includes(params.level)) {
-            throw new ValidationError(`invalid level: '${params.level}'`);
-        }
         addCondition("level = ?", params.level);
     }
 
@@ -86,11 +144,9 @@ export async function aggregateLogs(params: AggregateParams): Promise<AggregateR
         }
     }
 
-    // bucketSeconds is our own trusted constant (from BUCKET_SECONDS), never
-    // user input directly, so it is safe to interpolate into the SQL text.
     const bucketExpr = `to_timestamp(floor(extract(epoch from ts) / ${bucketSeconds}) * ${bucketSeconds})`;
 
-    const groupByColumn = params.group_by; // already validated against VALID_GROUP_BY
+    const groupByColumn = params.group_by;
     const groupExpr = groupByColumn ? groupByColumn : "NULL";
 
     const whereClause = `WHERE ${conditions.join(" AND ")}`;
@@ -108,11 +164,11 @@ export async function aggregateLogs(params: AggregateParams): Promise<AggregateR
 
     const { rows } = await readPool.query(sql, values);
 
-    const buckets: AggregateBucket[] = rows.map((row) => ({
-        start: new Date(row.bucket_start).toISOString(),
-        group: row.group_value,
-        count: row.count,
-    }));
-
-    return { buckets };
+    return {
+        buckets: rows.map((row) => ({
+            start: new Date(row.bucket_start).toISOString(),
+            group: row.group_value,
+            count: row.count,
+        })),
+    };
 }
