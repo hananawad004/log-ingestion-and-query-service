@@ -1,6 +1,6 @@
 import { pool } from "../db/pool.js";
 import type { ValidatedLogEntry } from "../validation/logValidator.js";
-// @ts-ignore
+
 import { recordRollupDeltas } from "../services/rollupBuffer.js";
 
 export async function insertBatch(entries: ValidatedLogEntry[]): Promise<number> {
@@ -18,9 +18,9 @@ export async function insertBatch(entries: ValidatedLogEntry[]): Promise<number>
         [timestamps, levels, services, messages, attributes],
     );
 
-    // recordRollupDeltas(
-    //     entries.map((e) => ({ timestamp: e.timestamp, service: e.service, level: e.level })),
-    // );
+    recordRollupDeltas(
+        entries.map((e) => ({ timestamp: e.timestamp, service: e.service, level: e.level })),
+    );
 
     return entries.length;
 }
