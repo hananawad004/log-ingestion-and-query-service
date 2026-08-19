@@ -43,6 +43,7 @@ services:
       PGUSER: ${POSTGRES_USER:-loguser}
       PGPASSWORD: ${POSTGRES_PASSWORD:-logpass}
       PGDATABASE: ${POSTGRES_DB:-logs}
+      MAX_CONCURRENT_INGESTS: 100
 
     ports:
       - "8080:8080"
