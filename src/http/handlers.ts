@@ -5,16 +5,6 @@ import { queryLogs } from "../services/queryService.js";
 import { aggregateLogs } from "../services/aggregateService.js";
 import { ValidationError, InvalidCursorError } from "../domain/errors.js";
 
-// Simple in-flight request counter for /logs ingestion. If the number of
-// concurrently-processing insert requests exceeds a safe threshold, new
-// requests are shed with 503 + Retry-After instead of being accepted and
-// left to queue indefinitely -- which is what caused accepted-but-invisible
-// records under extreme sustained load (see README, Eventual Consistency).
-// The threshold is set well above the 15,000 logs/sec baseline target, so
-// it only engages during genuine overload (stress/spike/breakpoint-level
-// traffic), never during normal operation.
-const MAX_CONCURRENT_INGESTS = Number(process.env.MAX_CONCURRENT_INGESTS ?? 40);
-let inFlightIngests = 0;
 export async function healthHandler(_req: FastifyRequest, reply: FastifyReply) {
     const dbOk = await pingDb();
     if (!dbOk) {
@@ -24,35 +14,26 @@ export async function healthHandler(_req: FastifyRequest, reply: FastifyReply) {
 }
 
 export async function ingestHandler(req: FastifyRequest, reply: FastifyReply) {
-    if (inFlightIngests >= MAX_CONCURRENT_INGESTS) {
-        reply.header("Retry-After", "1");
-        return reply.code(503).send({ error: "server is at capacity, please retry shortly" });
+    const body = req.body;
+
+    if (
+        typeof body !== "object" ||
+        body === null ||
+        !("logs" in body) ||
+        !Array.isArray((body as Record<string, unknown>).logs)
+    ) {
+        return reply.code(400).send({ error: "request body must be an object with a 'logs' array" });
     }
 
-    inFlightIngests++;
-    try {
-        const body = req.body;
+    const rawEntries = (body as { logs: unknown[] }).logs;
 
-        if (
-            typeof body !== "object" ||
-            body === null ||
-            !("logs" in body) ||
-            !Array.isArray((body as Record<string, unknown>).logs)
-        ) {
-            return reply.code(400).send({ error: "request body must be an object with a 'logs' array" });
-        }
+    const result = await ingestLogs(rawEntries);
 
-        const rawEntries = (body as { logs: unknown[] }).logs;
-        const result = await ingestLogs(rawEntries);
-
-        if (result.accepted === 0) {
-            return reply.code(400).send(result);
-        }
-
-        return reply.code(200).send(result);
-    } finally {
-        inFlightIngests--;
+    if (result.accepted === 0) {
+        return reply.code(400).send(result);
     }
+
+    return reply.code(200).send(result);
 }
 const VALID_ATTR_KEY = /^[a-zA-Z0-9_]+$/;
 
